@@ -8,18 +8,11 @@ import {
 import { AppLayout } from './components/AppLayout';
 import { LoginPage } from './pages/Login';
 import { RegisterPage } from './pages/Register';
-import { HomePage } from './pages/Home';
-import { ExpensesPage } from './pages/Expenses';
 import { DashboardPage } from './pages/Dashboard';
-import { SettingsPage } from './pages/Settings';
 import { authApi } from './api/endpoints';
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
-/**
- * Called from each protected route's `beforeLoad`. Throws a redirect if the
- * user isn't signed in, otherwise returns the user.
- */
 async function requireUser() {
   try {
     const { user } = await authApi.me();
@@ -55,28 +48,10 @@ const dashboardRoute = createRoute({
   component: DashboardPage,
 });
 
-const entryRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/entry',
-  component: HomePage,
-});
-
-const expensesRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/expenses',
-  component: ExpensesPage,
-});
-
-const settingsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/settings',
-  component: SettingsPage,
-});
-
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
-  appRoute.addChildren([dashboardRoute, entryRoute, expensesRoute, settingsRoute]),
+  appRoute.addChildren([dashboardRoute]),
 ]);
 
 export const router = createRouter({ routeTree, defaultPreload: 'intent' });

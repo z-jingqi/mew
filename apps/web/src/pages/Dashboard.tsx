@@ -15,7 +15,7 @@ import {
 } from 'recharts';
 import { BarChart3, ChevronLeft, ChevronRight, PieChart as PieIcon } from 'lucide-react';
 import { categoriesApi, expensesApi, peopleApi } from '../api/endpoints';
-import type { Expense, ExpenseItem, Category, Person } from '../api/types';
+import type { Category, Expense, ExpenseItem, Person } from '../api/types';
 import { useAuth } from '../auth/context';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -33,6 +33,8 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
+import { FloatingChat } from '../components/FloatingChat';
+import { UserMenu } from '../components/UserMenu';
 import { formatMoney } from '../lib/format';
 import { cn } from '@/lib/utils';
 
@@ -81,11 +83,11 @@ export function DashboardPage() {
   const people = useQuery({ queryKey: ['people'], queryFn: peopleApi.list });
 
   const catMap = useMemo(
-    () => new Map((categories.data ?? []).map((c: Category) => [c.id, c])),
+    () => new Map((categories.data ?? []).map((c) => [c.id, c])),
     [categories.data],
   );
   const peopleMap = useMemo(
-    () => new Map((people.data ?? []).map((p: Person) => [p.id, p])),
+    () => new Map((people.data ?? []).map((p) => [p.id, p])),
     [people.data],
   );
 
@@ -116,139 +118,138 @@ export function DashboardPage() {
   }, [selectedExpenses, catMap, primaryCurrency]);
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-baseline justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
-            {new Date(bounds.from).toLocaleDateString(undefined, {
-              month: 'long',
-              year: 'numeric',
-            })}
-          </p>
-        </div>
-      </header>
+    <>
+      <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 pb-48 sm:px-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <CardTitle className="text-base">Daily spending ({primaryCurrency})</CardTitle>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setMonthRef((d) => addMonths(d, -1))}
+                aria-label="Previous month"
+              >
+                <ChevronLeft />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  const t = new Date();
+                  setMonthRef(new Date(t.getFullYear(), t.getMonth(), 1));
+                  setSelected(isoDate(t));
+                }}
+              >
+                Today
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setMonthRef((d) => addMonths(d, 1))}
+                aria-label="Next month"
+              >
+                <ChevronRight />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <MonthCalendar
+              first={bounds.first}
+              last={bounds.last}
+              dayTotals={dayTotals}
+              currency={primaryCurrency}
+              selected={selected}
+              todayIso={isoDate(today)}
+              onSelect={setSelected}
+            />
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="text-base">Daily spending ({primaryCurrency})</CardTitle>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setMonthRef((d) => addMonths(d, -1))}
-              aria-label="Previous month"
-            >
-              <ChevronLeft />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                const t = new Date();
-                setMonthRef(new Date(t.getFullYear(), t.getMonth(), 1));
-                setSelected(isoDate(t));
-              }}
-            >
-              Today
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setMonthRef((d) => addMonths(d, 1))}
-              aria-label="Next month"
-            >
-              <ChevronRight />
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <MonthCalendar
-            first={bounds.first}
-            last={bounds.last}
-            dayTotals={dayTotals}
-            currency={primaryCurrency}
-            selected={selected}
-            todayIso={isoDate(today)}
-            onSelect={setSelected}
-          />
-        </CardContent>
-      </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <div>
+              <CardTitle className="text-base">By category</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {new Date(selected).toLocaleDateString(undefined, {
+                  weekday: 'long',
+                  month: 'short',
+                  day: 'numeric',
+                })}
+                {' · '}
+                {primaryCurrency}
+              </p>
+            </div>
+            <div className="flex rounded-md border">
+              <Button
+                variant={chartType === 'bar' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="rounded-r-none"
+                onClick={() => setChartType('bar')}
+              >
+                <BarChart3 />
+                Bar
+              </Button>
+              <Button
+                variant={chartType === 'pie' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="rounded-l-none"
+                onClick={() => setChartType('pie')}
+              >
+                <PieIcon />
+                Pie
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {categoryBreakdown.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                No {primaryCurrency} spending on this day.
+              </p>
+            ) : chartType === 'bar' ? (
+              <CategoryBarChart data={categoryBreakdown} currency={primaryCurrency} />
+            ) : (
+              <CategoryPieChart data={categoryBreakdown} currency={primaryCurrency} />
+            )}
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-          <div>
-            <CardTitle className="text-base">By category</CardTitle>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Expenses</CardTitle>
             <p className="text-xs text-muted-foreground">
-              {new Date(selected).toLocaleDateString(undefined, {
-                weekday: 'long',
-                month: 'short',
-                day: 'numeric',
-              })}
-              {' · '}
-              {primaryCurrency}
+              {selectedExpenses.length} {selectedExpenses.length === 1 ? 'entry' : 'entries'} on{' '}
+              {selected}
             </p>
-          </div>
-          <div className="flex rounded-md border">
-            <Button
-              variant={chartType === 'bar' ? 'secondary' : 'ghost'}
-              size="sm"
-              className="rounded-r-none"
-              onClick={() => setChartType('bar')}
-            >
-              <BarChart3 />
-              Bar
-            </Button>
-            <Button
-              variant={chartType === 'pie' ? 'secondary' : 'ghost'}
-              size="sm"
-              className="rounded-l-none"
-              onClick={() => setChartType('pie')}
-            >
-              <PieIcon />
-              Pie
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {categoryBreakdown.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No {primaryCurrency} spending on this day.
-            </p>
-          ) : chartType === 'bar' ? (
-            <CategoryBarChart data={categoryBreakdown} currency={primaryCurrency} />
-          ) : (
-            <CategoryPieChart data={categoryBreakdown} currency={primaryCurrency} />
-          )}
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent>
+            <DayExpensesTable
+              expenses={selectedExpenses}
+              catMap={catMap}
+              peopleMap={peopleMap}
+              onOpenDetails={setDetailId}
+            />
+          </CardContent>
+        </Card>
+      </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Expenses</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            {selectedExpenses.length} {selectedExpenses.length === 1 ? 'entry' : 'entries'} on{' '}
-            {selected}
-          </p>
-        </CardHeader>
-        <CardContent>
-          <DayExpensesTable
-            expenses={selectedExpenses}
-            catMap={catMap}
-            peopleMap={peopleMap}
-            onOpenDetails={setDetailId}
-          />
-        </CardContent>
-      </Card>
+      <FloatingChat
+        onSaved={(iso) => {
+          setSelected(iso);
+          const d = new Date(iso);
+          setMonthRef(new Date(d.getFullYear(), d.getMonth(), 1));
+        }}
+      />
+      <UserMenu />
 
       <ExpenseDetailDialog
         expenseId={detailId}
         open={detailId !== null}
         onOpenChange={(open) => !open && setDetailId(null)}
       />
-    </div>
+    </>
   );
 }
 
@@ -269,7 +270,7 @@ function MonthCalendar({
   todayIso: string;
   onSelect: (iso: string) => void;
 }) {
-  const firstWeekday = first.getDay(); // 0 Sun..6 Sat
+  const firstWeekday = first.getDay();
   const daysInMonth = last.getDate();
 
   const cells: Array<{ iso?: string; day?: number; total?: number }> = [];
@@ -322,7 +323,7 @@ function MonthCalendar({
               </div>
               <div className="mt-auto">
                 {hasSpend ? (
-                  <div className="truncate text-xs font-medium">
+                  <div className="truncate text-xs font-medium tabular-nums">
                     {formatMoney(cell.total!, currency)}
                   </div>
                 ) : (
@@ -348,10 +349,7 @@ function CategoryBarChart({
   return (
     <div className="h-72 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart
-          data={chartData}
-          margin={{ top: 24, right: 16, left: 0, bottom: 8 }}
-        >
+        <BarChart data={chartData} margin={{ top: 24, right: 16, left: 0, bottom: 8 }}>
           <XAxis
             dataKey="name"
             axisLine={false}
@@ -407,11 +405,7 @@ function CategoryPieChart({
             }}
             formatter={(v) => formatMoney(Math.round(Number(v) * 100), currency)}
           />
-          <Legend
-            verticalAlign="bottom"
-            iconType="circle"
-            wrapperStyle={{ fontSize: 12 }}
-          />
+          <Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: 12 }} />
           <Pie
             data={chartData}
             dataKey="value"
@@ -481,7 +475,7 @@ function DayExpensesTable({
                 {cat ? `${cat.icon ? cat.icon + ' ' : ''}${cat.name}` : '—'}
               </TableCell>
               <TableCell className="text-muted-foreground">{person?.name ?? '—'}</TableCell>
-              <TableCell className="text-right font-medium">
+              <TableCell className="text-right font-medium tabular-nums">
                 {formatMoney(e.amountCents, e.currency)}
               </TableCell>
             </TableRow>
@@ -517,7 +511,7 @@ function ExpenseDetailDialog({
         {q.data && (
           <div className="space-y-3">
             <div className="flex items-baseline justify-between">
-              <div className="text-2xl font-semibold">
+              <div className="text-2xl font-semibold tabular-nums">
                 {formatMoney(q.data.expense.amountCents, q.data.expense.currency)}
               </div>
               <div className="text-xs text-muted-foreground">{q.data.expense.spentAt}</div>
