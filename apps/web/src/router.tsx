@@ -49,9 +49,15 @@ const appRoute = createRoute({
   component: AppLayout,
 });
 
-const homeRoute = createRoute({
+const dashboardRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/',
+  component: DashboardPage,
+});
+
+const entryRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/entry',
   component: HomePage,
 });
 
@@ -59,12 +65,6 @@ const expensesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/expenses',
   component: ExpensesPage,
-});
-
-const dashboardRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/dashboard',
-  component: DashboardPage,
 });
 
 const settingsRoute = createRoute({
@@ -76,7 +76,7 @@ const settingsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
-  appRoute.addChildren([homeRoute, expensesRoute, dashboardRoute, settingsRoute]),
+  appRoute.addChildren([dashboardRoute, entryRoute, expensesRoute, settingsRoute]),
 ]);
 
 export const router = createRouter({ routeTree, defaultPreload: 'intent' });

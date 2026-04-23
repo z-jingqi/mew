@@ -39,6 +39,7 @@ export interface Expense {
   source: 'ai' | 'manual';
   createdAt: number;
   updatedAt: number;
+  itemCount?: number;
 }
 
 export interface ExpenseItem {

@@ -1,166 +1,557 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { dashboardApi } from '../api/endpoints';
-import { Card } from '../components/ui';
-import { formatMoney, monthRange } from '../lib/format';
+import {
+  Bar,
+  BarChart,
+  Cell,
+  LabelList,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { BarChart3, ChevronLeft, ChevronRight, PieChart as PieIcon } from 'lucide-react';
+import { categoriesApi, expensesApi, peopleApi } from '../api/endpoints';
+import type { Expense, ExpenseItem, Category, Person } from '../api/types';
+import { useAuth } from '../auth/context';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table';
+import { formatMoney } from '../lib/format';
+import { cn } from '@/lib/utils';
+
+const CHART_COLORS = [
+  'var(--color-chart-1)',
+  'var(--color-chart-2)',
+  'var(--color-chart-3)',
+  'var(--color-chart-4)',
+  'var(--color-chart-5)',
+];
+
+function isoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function addMonths(d: Date, n: number): Date {
+  return new Date(d.getFullYear(), d.getMonth() + n, 1);
+}
+
+function monthBounds(ref: Date): { from: string; to: string; first: Date; last: Date } {
+  const first = new Date(ref.getFullYear(), ref.getMonth(), 1);
+  const last = new Date(ref.getFullYear(), ref.getMonth() + 1, 0);
+  return { from: isoDate(first), to: isoDate(last), first, last };
+}
 
 export function DashboardPage() {
-  const range = useMemo(monthRange, []);
-  const q = useQuery({
-    queryKey: ['dashboard', range.from, range.to],
-    queryFn: () => dashboardApi.summary(range.from, range.to),
-  });
+  const today = useMemo(() => new Date(), []);
+  const [monthRef, setMonthRef] = useState<Date>(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [selected, setSelected] = useState<string>(isoDate(today));
+  const [chartType, setChartType] = useState<'bar' | 'pie'>('bar');
+  const [detailId, setDetailId] = useState<string | null>(null);
 
-  if (q.isPending) return <p className="text-sm text-neutral-500">Loading…</p>;
-  if (q.isError) return <p className="text-sm text-red-600">Failed to load dashboard.</p>;
-  const data = q.data!;
+  const { me } = useAuth();
+  const primaryCurrency = me?.defaultCurrency ?? 'USD';
+
+  const bounds = useMemo(() => monthBounds(monthRef), [monthRef]);
+
+  const expenses = useQuery({
+    queryKey: ['expenses', bounds.from, bounds.to],
+    queryFn: () => expensesApi.list(bounds.from, bounds.to),
+  });
+  const categories = useQuery({ queryKey: ['categories'], queryFn: categoriesApi.list });
+  const people = useQuery({ queryKey: ['people'], queryFn: peopleApi.list });
+
+  const catMap = useMemo(
+    () => new Map((categories.data ?? []).map((c: Category) => [c.id, c])),
+    [categories.data],
+  );
+  const peopleMap = useMemo(
+    () => new Map((people.data ?? []).map((p: Person) => [p.id, p])),
+    [people.data],
+  );
+
+  const monthExpenses = expenses.data ?? [];
+  const selectedExpenses = monthExpenses.filter((e) => e.spentAt === selected);
+
+  const dayTotals = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const e of monthExpenses) {
+      if (e.currency !== primaryCurrency) continue;
+      map.set(e.spentAt, (map.get(e.spentAt) ?? 0) + e.amountCents);
+    }
+    return map;
+  }, [monthExpenses, primaryCurrency]);
+
+  const categoryBreakdown = useMemo(() => {
+    const map = new Map<string, { name: string; total: number }>();
+    for (const e of selectedExpenses) {
+      if (e.currency !== primaryCurrency) continue;
+      const cat = e.categoryId ? catMap.get(e.categoryId) : null;
+      const key = cat?.id ?? '__uncat';
+      const name = cat ? `${cat.icon ? cat.icon + ' ' : ''}${cat.name}` : 'Uncategorized';
+      const existing = map.get(key);
+      if (existing) existing.total += e.amountCents;
+      else map.set(key, { name, total: e.amountCents });
+    }
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [selectedExpenses, catMap, primaryCurrency]);
 
   return (
-    <div className="space-y-4">
-      <header>
-        <h1 className="text-xl font-semibold">
-          {new Date(range.from).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
-        </h1>
-        <p className="text-sm text-neutral-500">
-          {range.from} → {range.to}
-        </p>
+    <div className="space-y-6">
+      <header className="flex flex-wrap items-baseline justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="text-sm text-muted-foreground">
+            {new Date(bounds.from).toLocaleDateString(undefined, {
+              month: 'long',
+              year: 'numeric',
+            })}
+          </p>
+        </div>
       </header>
 
-      <section className="grid gap-3 sm:grid-cols-2">
-        {data.byCurrency.length === 0 && (
-          <Card className="text-sm text-neutral-500">No spending this month yet.</Card>
-        )}
-        {data.byCurrency.map((row) => (
-          <Card key={row.currency}>
-            <div className="text-xs uppercase tracking-wide text-neutral-500">{row.currency}</div>
-            <div className="text-2xl font-semibold">{formatMoney(row.total, row.currency)}</div>
-            <div className="text-xs text-neutral-500">{row.count} entries</div>
-          </Card>
-        ))}
-      </section>
-
-      {data.insight && (
-        <Card className="space-y-2 border-amber-200 bg-amber-50">
-          <div className="text-xs uppercase tracking-wide text-amber-800">
-            Last week ({data.insight.weekStart} → {data.insight.weekEnd})
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+          <CardTitle className="text-base">Daily spending ({primaryCurrency})</CardTitle>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setMonthRef((d) => addMonths(d, -1))}
+              aria-label="Previous month"
+            >
+              <ChevronLeft />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const t = new Date();
+                setMonthRef(new Date(t.getFullYear(), t.getMonth(), 1));
+                setSelected(isoDate(t));
+              }}
+            >
+              Today
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setMonthRef((d) => addMonths(d, 1))}
+              aria-label="Next month"
+            >
+              <ChevronRight />
+            </Button>
           </div>
-          <p className="text-sm text-amber-950">{data.insight.summary}</p>
-          {data.insight.highlights.length > 0 && (
-            <ul className="list-disc space-y-1 pl-5 text-sm text-amber-950">
-              {data.insight.highlights.map((h, i) => (
-                <li key={i}>{h}</li>
-              ))}
-            </ul>
-          )}
-          {data.insight.suggestion && (
-            <p className="text-sm italic text-amber-950">💡 {data.insight.suggestion}</p>
-          )}
-        </Card>
-      )}
+        </CardHeader>
+        <CardContent>
+          <MonthCalendar
+            first={bounds.first}
+            last={bounds.last}
+            dayTotals={dayTotals}
+            currency={primaryCurrency}
+            selected={selected}
+            todayIso={isoDate(today)}
+            onSelect={setSelected}
+          />
+        </CardContent>
+      </Card>
 
-      <BarSection title="By category" data={data.byCategory.map(toCatRow)} />
-      <BarSection title="By person" data={data.byPerson.map(toPersonRow)} />
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+          <div>
+            <CardTitle className="text-base">By category</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              {new Date(selected).toLocaleDateString(undefined, {
+                weekday: 'long',
+                month: 'short',
+                day: 'numeric',
+              })}
+              {' · '}
+              {primaryCurrency}
+            </p>
+          </div>
+          <div className="flex rounded-md border">
+            <Button
+              variant={chartType === 'bar' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="rounded-r-none"
+              onClick={() => setChartType('bar')}
+            >
+              <BarChart3 />
+              Bar
+            </Button>
+            <Button
+              variant={chartType === 'pie' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="rounded-l-none"
+              onClick={() => setChartType('pie')}
+            >
+              <PieIcon />
+              Pie
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {categoryBreakdown.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              No {primaryCurrency} spending on this day.
+            </p>
+          ) : chartType === 'bar' ? (
+            <CategoryBarChart data={categoryBreakdown} currency={primaryCurrency} />
+          ) : (
+            <CategoryPieChart data={categoryBreakdown} currency={primaryCurrency} />
+          )}
+        </CardContent>
+      </Card>
 
-      <section>
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">
-          Recent
-        </h2>
-        <div className="space-y-1">
-          {data.recent.map((r) => (
-            <Card key={r.id} className="flex items-center justify-between py-2">
-              <div className="min-w-0">
-                <div className="text-xs text-neutral-500">{r.spentAt}</div>
-                <div className="truncate text-sm">
-                  {r.merchant || r.note || r.categoryName || '—'}
-                </div>
-              </div>
-              <div className="text-sm font-medium">{formatMoney(r.amountCents, r.currency)}</div>
-            </Card>
-          ))}
-        </div>
-      </section>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Expenses</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            {selectedExpenses.length} {selectedExpenses.length === 1 ? 'entry' : 'entries'} on{' '}
+            {selected}
+          </p>
+        </CardHeader>
+        <CardContent>
+          <DayExpensesTable
+            expenses={selectedExpenses}
+            catMap={catMap}
+            peopleMap={peopleMap}
+            onOpenDetails={setDetailId}
+          />
+        </CardContent>
+      </Card>
+
+      <ExpenseDetailDialog
+        expenseId={detailId}
+        open={detailId !== null}
+        onOpenChange={(open) => !open && setDetailId(null)}
+      />
     </div>
   );
 }
 
-interface BarRow {
-  label: string;
+function MonthCalendar({
+  first,
+  last,
+  dayTotals,
+  currency,
+  selected,
+  todayIso,
+  onSelect,
+}: {
+  first: Date;
+  last: Date;
+  dayTotals: Map<string, number>;
   currency: string;
-  total: number;
-  count: number;
-}
+  selected: string;
+  todayIso: string;
+  onSelect: (iso: string) => void;
+}) {
+  const firstWeekday = first.getDay(); // 0 Sun..6 Sat
+  const daysInMonth = last.getDate();
 
-function toCatRow(row: {
-  currency: string;
-  categoryName: string | null;
-  categoryIcon: string | null;
-  total: number;
-  count: number;
-}): BarRow {
-  return {
-    label: `${row.categoryIcon ?? ''}${row.categoryIcon ? ' ' : ''}${row.categoryName ?? 'Uncategorized'}`,
-    currency: row.currency,
-    total: row.total,
-    count: row.count,
-  };
-}
-
-function toPersonRow(row: {
-  currency: string;
-  personName: string | null;
-  total: number;
-  count: number;
-}): BarRow {
-  return {
-    label: row.personName ?? '(solo)',
-    currency: row.currency,
-    total: row.total,
-    count: row.count,
-  };
-}
-
-function BarSection({ title, data }: { title: string; data: BarRow[] }) {
-  if (!data.length) return null;
-  const byCurrency = new Map<string, BarRow[]>();
-  for (const r of data) {
-    const arr = byCurrency.get(r.currency) ?? [];
-    arr.push(r);
-    byCurrency.set(r.currency, arr);
+  const cells: Array<{ iso?: string; day?: number; total?: number }> = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push({});
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dt = new Date(first.getFullYear(), first.getMonth(), d);
+    const iso = isoDate(dt);
+    cells.push({ iso, day: d, total: dayTotals.get(iso) });
   }
+  while (cells.length % 7 !== 0) cells.push({});
+
+  const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
   return (
-    <section>
-      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">
-        {title}
-      </h2>
-      <div className="space-y-4">
-        {Array.from(byCurrency.entries()).map(([currency, rows]) => {
-          const max = Math.max(...rows.map((r) => r.total));
+    <div>
+      <div className="mb-2 grid grid-cols-7 gap-1 text-center text-xs text-muted-foreground">
+        {weekdayLabels.map((w) => (
+          <div key={w} className="py-1">
+            {w}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((cell, i) => {
+          if (!cell.iso) return <div key={i} className="h-20" />;
+          const isSelected = cell.iso === selected;
+          const isToday = cell.iso === todayIso;
+          const hasSpend = typeof cell.total === 'number' && cell.total > 0;
           return (
-            <Card key={currency}>
-              <div className="mb-2 text-xs text-neutral-500">{currency}</div>
-              <div className="space-y-2">
-                {rows
-                  .slice()
-                  .sort((a, b) => b.total - a.total)
-                  .map((r) => (
-                    <div key={`${currency}:${r.label}`}>
-                      <div className="flex justify-between text-sm">
-                        <span>{r.label}</span>
-                        <span>{formatMoney(r.total, currency)}</span>
-                      </div>
-                      <div className="mt-1 h-2 overflow-hidden rounded-full bg-neutral-100">
-                        <div
-                          className="h-full bg-neutral-900"
-                          style={{ width: `${max ? (r.total / max) * 100 : 0}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+            <button
+              key={cell.iso}
+              type="button"
+              onClick={() => onSelect(cell.iso!)}
+              className={cn(
+                'group flex h-20 flex-col items-stretch rounded-md border p-1.5 text-left transition-colors',
+                isSelected
+                  ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                  : 'border-border hover:bg-accent',
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <span
+                  className={cn(
+                    'inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium',
+                    isToday && 'bg-primary text-primary-foreground',
+                  )}
+                >
+                  {cell.day}
+                </span>
               </div>
-            </Card>
+              <div className="mt-auto">
+                {hasSpend ? (
+                  <div className="truncate text-xs font-medium">
+                    {formatMoney(cell.total!, currency)}
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground/50">—</div>
+                )}
+              </div>
+            </button>
           );
         })}
       </div>
-    </section>
+    </div>
+  );
+}
+
+function CategoryBarChart({
+  data,
+  currency,
+}: {
+  data: Array<{ name: string; total: number }>;
+  currency: string;
+}) {
+  const chartData = data.map((d) => ({ name: d.name, value: d.total / 100 }));
+  return (
+    <div className="h-72 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={chartData}
+          margin={{ top: 24, right: 16, left: 0, bottom: 8 }}
+        >
+          <XAxis
+            dataKey="name"
+            axisLine={false}
+            tickLine={false}
+            tick={{ fontSize: 12, fill: 'var(--color-muted-foreground)' }}
+          />
+          <YAxis hide />
+          <RechartsTooltip
+            cursor={{ fill: 'var(--color-accent)' }}
+            contentStyle={{
+              background: 'var(--color-popover)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '8px',
+              fontSize: '12px',
+            }}
+            formatter={(v) => formatMoney(Math.round(Number(v) * 100), currency)}
+          />
+          <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+            {chartData.map((_, i) => (
+              <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+            ))}
+            <LabelList
+              dataKey="value"
+              position="top"
+              formatter={(v) => formatMoney(Math.round(Number(v) * 100), currency)}
+              style={{ fontSize: 11, fill: 'var(--color-foreground)' }}
+            />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function CategoryPieChart({
+  data,
+  currency,
+}: {
+  data: Array<{ name: string; total: number }>;
+  currency: string;
+}) {
+  const chartData = data.map((d) => ({ name: d.name, value: d.total / 100 }));
+  return (
+    <div className="h-72 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <RechartsTooltip
+            contentStyle={{
+              background: 'var(--color-popover)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '8px',
+              fontSize: '12px',
+            }}
+            formatter={(v) => formatMoney(Math.round(Number(v) * 100), currency)}
+          />
+          <Legend
+            verticalAlign="bottom"
+            iconType="circle"
+            wrapperStyle={{ fontSize: 12 }}
+          />
+          <Pie
+            data={chartData}
+            dataKey="value"
+            nameKey="name"
+            cx="50%"
+            cy="45%"
+            outerRadius={90}
+            innerRadius={40}
+            paddingAngle={2}
+          >
+            {chartData.map((_, i) => (
+              <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+            ))}
+          </Pie>
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function DayExpensesTable({
+  expenses,
+  catMap,
+  peopleMap,
+  onOpenDetails,
+}: {
+  expenses: Expense[];
+  catMap: Map<string, Category>;
+  peopleMap: Map<string, Person>;
+  onOpenDetails: (id: string) => void;
+}) {
+  if (expenses.length === 0) {
+    return <p className="py-6 text-center text-sm text-muted-foreground">No expenses.</p>;
+  }
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Merchant / note</TableHead>
+          <TableHead>Category</TableHead>
+          <TableHead>Person</TableHead>
+          <TableHead className="text-right">Amount</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {expenses.map((e) => {
+          const hasDetails = (e.itemCount ?? 0) > 0;
+          const cat = e.categoryId ? catMap.get(e.categoryId) : null;
+          const person = e.personId ? peopleMap.get(e.personId) : null;
+          return (
+            <TableRow
+              key={e.id}
+              className={cn(hasDetails && 'cursor-pointer')}
+              onClick={hasDetails ? () => onOpenDetails(e.id) : undefined}
+            >
+              <TableCell className="font-medium">
+                <div className="flex items-center gap-2">
+                  <span>{e.merchant || e.note || '—'}</span>
+                  {hasDetails && (
+                    <span className="rounded-sm bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
+                      {e.itemCount} items
+                    </span>
+                  )}
+                </div>
+              </TableCell>
+              <TableCell className="text-muted-foreground">
+                {cat ? `${cat.icon ? cat.icon + ' ' : ''}${cat.name}` : '—'}
+              </TableCell>
+              <TableCell className="text-muted-foreground">{person?.name ?? '—'}</TableCell>
+              <TableCell className="text-right font-medium">
+                {formatMoney(e.amountCents, e.currency)}
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
+  );
+}
+
+function ExpenseDetailDialog({
+  expenseId,
+  open,
+  onOpenChange,
+}: {
+  expenseId: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const q = useQuery({
+    queryKey: ['expense', expenseId],
+    queryFn: () => expensesApi.get(expenseId!),
+    enabled: !!expenseId,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Expense details</DialogTitle>
+        </DialogHeader>
+        {q.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {q.data && (
+          <div className="space-y-3">
+            <div className="flex items-baseline justify-between">
+              <div className="text-2xl font-semibold">
+                {formatMoney(q.data.expense.amountCents, q.data.expense.currency)}
+              </div>
+              <div className="text-xs text-muted-foreground">{q.data.expense.spentAt}</div>
+            </div>
+            {(q.data.expense.merchant || q.data.expense.note) && (
+              <div className="text-sm">
+                {q.data.expense.merchant && (
+                  <div className="font-medium">{q.data.expense.merchant}</div>
+                )}
+                {q.data.expense.note && (
+                  <div className="text-muted-foreground">{q.data.expense.note}</div>
+                )}
+              </div>
+            )}
+            {q.data.items.length > 0 && (
+              <div className="border-t pt-3">
+                <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Items
+                </div>
+                <ul className="space-y-1 text-sm">
+                  {q.data.items.map((it: ExpenseItem) => (
+                    <li key={it.id} className="flex justify-between">
+                      <span>{it.name}</span>
+                      <span className="tabular-nums">
+                        {formatMoney(it.amountCents, q.data.expense.currency)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

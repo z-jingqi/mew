@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, desc, eq, gte, lte } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { createDb, schema, type Db } from '@mew/database';
 import { parseExpense } from '@mew/ai-core';
@@ -76,7 +76,22 @@ expenses.get('/', async (c) => {
     .orderBy(desc(schema.expenses.spentAt), desc(schema.expenses.createdAt))
     .limit(parsed.data.limit);
 
-  return c.json({ expenses: rows });
+  const ids = rows.map((r) => r.id);
+  const counts = ids.length
+    ? await db
+        .select({
+          expenseId: schema.expenseItems.expenseId,
+          count: sql<number>`count(*)`,
+        })
+        .from(schema.expenseItems)
+        .where(inArray(schema.expenseItems.expenseId, ids))
+        .groupBy(schema.expenseItems.expenseId)
+    : [];
+  const countMap = new Map(counts.map((c) => [c.expenseId, Number(c.count)]));
+
+  return c.json({
+    expenses: rows.map((r) => ({ ...r, itemCount: countMap.get(r.id) ?? 0 })),
+  });
 });
 
 expenses.get('/:id', async (c) => {
