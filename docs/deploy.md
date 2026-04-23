@@ -95,8 +95,9 @@ Set these under **Settings → Secrets and variables → Actions**:
 
 | Secret | Notes |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | Create at dash.cloudflare.com/profile/api-tokens. Needs permissions: *Account → D1:Edit*, *Account → Workers Scripts:Edit*, *Account → Cloudflare Pages:Edit*, *User → User Details:Read*. |
-| `CLOUDFLARE_ACCOUNT_ID` | From any zone or Workers page in the dashboard. |
+| `CLOUDFLARE_GIT_ACTION` | API token. Create at dash.cloudflare.com/profile/api-tokens. Needs permissions: *Account → D1:Edit*, *Account → Workers Scripts:Edit*, *Account → Cloudflare Pages:Edit*, *User → User Details:Read*. The workflow maps this secret into the `CLOUDFLARE_API_TOKEN` env var wrangler reads. |
+
+If the token grants access to more than one Cloudflare account (rare — only if you're a member of multiple orgs), also add a `CLOUDFLARE_ACCOUNT_ID` secret and pipe it into `env.CLOUDFLARE_ACCOUNT_ID` in `deploy.yml`. Single-account tokens don't need it — wrangler infers the account from the token.
 
 Once set, pushing to `main` deploys the affected app(s) automatically, and a change to any file in `packages/database/drizzle/` triggers `db:migrate:remote` before the server deploy.
 

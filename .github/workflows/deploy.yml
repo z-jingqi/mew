@@ -41,8 +41,7 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm --filter @mew/server run db:migrate:remote
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_GIT_ACTION }}
 
   deploy-web:
     needs: changes
@@ -53,8 +52,7 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm --filter @mew/web run deploy
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_GIT_ACTION }}
 
   deploy-server:
     needs: [changes, migrate-db]
@@ -67,5 +65,4 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm --filter @mew/server run deploy
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_GIT_ACTION }}
