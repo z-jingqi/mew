@@ -1,0 +1,7 @@
+# Copy to `.dev.vars` for local dev (gitignored).
+# Cloudflare Workers AI (the default) needs no keys — the [ai] binding in
+# wrangler.toml is enough. These are only for fallback providers.
+
+# DEFAULT_PROVIDER=cloudflare
+# OPENROUTER_API_KEY=
+# ANTHROPIC_API_KEY=

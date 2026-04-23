@@ -1,0 +1,71 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.web == 'true' }}
+      server: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.server == 'true' }}
+      migrate: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.migrate == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - if: github.event_name != 'workflow_dispatch'
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            web:
+              - 'apps/web/**'
+              - 'packages/shared/**'
+              - 'pnpm-lock.yaml'
+            server:
+              - 'apps/server/**'
+              - 'packages/ai-core/**'
+              - 'packages/database/**'
+              - 'packages/shared/**'
+              - 'pnpm-lock.yaml'
+            migrate:
+              - 'packages/database/drizzle/**'
+
+  migrate-db:
+    needs: changes
+    if: needs.changes.outputs.migrate == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm --filter @mew/server run db:migrate:remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm --filter @mew/web run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-server:
+    needs: [changes, migrate-db]
+    # Deploy server if server code changed AND the migration step didn't fail
+    # (it might have been skipped — that's fine, result == 'skipped' != 'failure').
+    if: ${{ always() && needs.changes.outputs.server == 'true' && needs.migrate-db.result != 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm --filter @mew/server run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

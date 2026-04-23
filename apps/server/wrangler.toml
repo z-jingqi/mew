@@ -1,0 +1,38 @@
+name = "mew-server"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Serve the Worker at https://mew.aleph-cat.com/api/*
+# (Pages deployment of apps/web owns the rest of the domain.)
+workers_dev = false
+routes = [
+  { pattern = "mew.aleph-cat.com/api/*", zone_name = "aleph-cat.com" }
+]
+
+# --- AI providers ---
+# Cloudflare Workers AI binding — the default provider for Mew.
+[ai]
+binding = "AI"
+
+# Paid-provider keys go to .dev.vars (local) or `wrangler secret put` (prod):
+#   DEFAULT_PROVIDER=cloudflare
+#   OPENROUTER_API_KEY=...
+#   ANTHROPIC_API_KEY=...
+#   ADMIN_API_KEY=... (for admin bootstrap + invite minting)
+
+# --- D1 ---
+[[d1_databases]]
+binding = "DB"
+database_name = "mew"
+database_id = "0234fcc5-6b51-4f7f-8bc0-98fa7a964ef0"
+migrations_dir = "../../packages/database/drizzle"
+
+# --- R2 (uncomment when uploads land) ---
+# [[r2_buckets]]
+# binding = "ASSETS"
+# bucket_name = "mew-assets"
+
+# --- Cron (weekly insight) ---
+[triggers]
+crons = ["0 2 * * MON"]  # every Monday at 02:00 UTC
